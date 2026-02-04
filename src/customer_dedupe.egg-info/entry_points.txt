@@ -1,0 +1,2 @@
+[console_scripts]
+customer-dedupe = customer_dedupe.cli:main
