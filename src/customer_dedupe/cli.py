@@ -226,13 +226,14 @@ def _read_records_csv(path: Path) -> list[CustomerRecord]:
     records: list[CustomerRecord] = []
     with path.open("r", newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
+        id_column = _select_record_id_column(reader.fieldnames or [])
         for row in reader:
             row = {str(k): v for k, v in row.items() if k is not None}
-            record_id = row.get("RECORD_ID")
+            record_id = row.get(id_column) if id_column else None
             if not record_id:
-                continue
-            attrs = {k: v for k, v in row.items() if k != "RECORD_ID"}
-            records.append(CustomerRecord(record_id=record_id, attributes=attrs))
+                record_id = f"row_{len(records):07d}"
+            attrs = {k: v for k, v in row.items() if k != id_column}
+            records.append(CustomerRecord(record_id=str(record_id), attributes=attrs))
     return records
 
 
@@ -246,14 +247,15 @@ def _read_records_csv_dynamic(path: Path) -> tuple[list[CustomerRecord], RecordS
 
     json_columns = _detect_json_columns(rows[0])
     expanded_rows = [_expand_row_json(row, json_columns) for row in rows]
+    id_column = _select_record_id_column(list(expanded_rows[0].keys()))
 
     records: list[CustomerRecord] = []
     for row in expanded_rows:
-        record_id = row.get("RECORD_ID") or row.get("record_id")
+        record_id = row.get(id_column) if id_column else None
         if not record_id:
-            continue
-        attrs = {k: v for k, v in row.items() if k not in {"RECORD_ID", "record_id"}}
-        records.append(CustomerRecord(record_id=record_id, attributes=attrs))
+            record_id = f"row_{len(records):07d}"
+        attrs = {k: v for k, v in row.items() if k != id_column}
+        records.append(CustomerRecord(record_id=str(record_id), attributes=attrs))
 
     schema = _infer_schema_from_columns(list(expanded_rows[0].keys()))
     return records, schema
@@ -342,6 +344,21 @@ def _embedding_tags_for_schema(schema: RecordSchema) -> list[FieldTag]:
     preferred = [FieldTag.NAME, FieldTag.ADDRESS, FieldTag.EMAIL, FieldTag.POSTCODE, FieldTag.PHONE]
     tags = [tag for tag in preferred if schema.columns_for(tag)]
     return tags or [FieldTag.NAME]
+
+
+def _select_record_id_column(columns: list[str]) -> str | None:
+    if not columns:
+        return None
+    lowered = {column: column.lower() for column in columns if column is not None}
+    for key in ("record_id", "recordid"):
+        for column, value in lowered.items():
+            if value == key:
+                return column
+    for token in ("person_id", "dim_individual_id", "customer_pk", "customer_id", "_id"):
+        for column, value in lowered.items():
+            if token in value:
+                return column
+    return columns[0]
 
 
 def _cluster_sample_payload(
