@@ -9,7 +9,7 @@ from typing import Any
 
 from customer_dedupe.datasets import RETAIL_COLUMNS, RETAIL_SCHEMA, ReferenceDatasetGenerator
 from customer_dedupe.models import CustomerRecord
-from customer_dedupe.schema import FieldTag
+from customer_dedupe.schema import FieldTag, RecordSchema
 from customer_dedupe.steps import (
     BruteForceVectorIndex,
     DefaultEmbeddingMatcher,
@@ -73,38 +73,39 @@ def run_test(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if input_csv is None:
+        schema = RETAIL_SCHEMA
         records = ReferenceDatasetGenerator(seed=seed).generate(
             columns=RETAIL_COLUMNS,
-            schema=RETAIL_SCHEMA,
+            schema=schema,
             size=size,
             duplicate_rate=duplicate_rate,
         )
         dataset_path = output_dir / "test_dataset.csv"
         _write_records_csv(dataset_path, records, RETAIL_COLUMNS)
     else:
-        records = _read_records_csv(input_csv)
+        records, schema = _read_records_csv_dynamic(input_csv)
         dataset_path = input_csv
 
     cleaner = FunctionalCleaner(
-        schema=RETAIL_SCHEMA,
+        schema=schema,
         tag_transforms={
             FieldTag.POSTCODE: lambda value: value.replace(" ", "").upper(),
             FieldTag.ADDRESS: lambda value: " ".join(value.lower().split()),
             FieldTag.EMAIL: lambda value: value.strip().lower(),
         },
     )
-    deterministic_matcher = NameFuzzyMatcher(schema=RETAIL_SCHEMA, max_edits=1)
+    deterministic_matcher = NameFuzzyMatcher(schema=schema, max_edits=1)
     if embedding_backend == "sbert":
         embedding_model = SbertEmbeddingModel(
-            schema=RETAIL_SCHEMA,
-            tags=[FieldTag.NAME, FieldTag.ADDRESS, FieldTag.EMAIL],
+            schema=schema,
+            tags=_embedding_tags_for_schema(schema),
             model_name=sbert_model,
             batch_size=sbert_batch_size,
         )
     else:
         embedding_model = SimpleTextEmbeddingModel(
-            schema=RETAIL_SCHEMA,
-            tags=[FieldTag.NAME, FieldTag.ADDRESS, FieldTag.EMAIL],
+            schema=schema,
+            tags=_embedding_tags_for_schema(schema),
         )
 
     embedding_matcher = DefaultEmbeddingMatcher(
@@ -121,6 +122,7 @@ def run_test(
         candidates=all_candidates,
         records=cleaned_records,
         constraint=email_constraint,
+        schema=schema,
     )
     clusters = embedding_matcher.cluster(constrained_candidates)
 
@@ -225,12 +227,121 @@ def _read_records_csv(path: Path) -> list[CustomerRecord]:
     with path.open("r", newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
         for row in reader:
+            row = {str(k): v for k, v in row.items() if k is not None}
             record_id = row.get("RECORD_ID")
             if not record_id:
                 continue
             attrs = {k: v for k, v in row.items() if k != "RECORD_ID"}
             records.append(CustomerRecord(record_id=record_id, attributes=attrs))
     return records
+
+
+def _read_records_csv_dynamic(path: Path) -> tuple[list[CustomerRecord], RecordSchema]:
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        rows = [{str(k): v for k, v in row.items() if k is not None} for row in reader]
+
+    if not rows:
+        return [], RecordSchema.from_mapping({})
+
+    json_columns = _detect_json_columns(rows[0])
+    expanded_rows = [_expand_row_json(row, json_columns) for row in rows]
+
+    records: list[CustomerRecord] = []
+    for row in expanded_rows:
+        record_id = row.get("RECORD_ID") or row.get("record_id")
+        if not record_id:
+            continue
+        attrs = {k: v for k, v in row.items() if k not in {"RECORD_ID", "record_id"}}
+        records.append(CustomerRecord(record_id=record_id, attributes=attrs))
+
+    schema = _infer_schema_from_columns(list(expanded_rows[0].keys()))
+    return records, schema
+
+
+def _detect_json_columns(first_row: dict[str, str]) -> set[str]:
+    json_columns: set[str] = set()
+    for column, value in first_row.items():
+        if value is None:
+            continue
+        parsed = _parse_json_value(value)
+        if isinstance(parsed, dict):
+            json_columns.add(column)
+    return json_columns
+
+
+def _expand_row_json(row: dict[str, str], json_columns: set[str]) -> dict[str, str]:
+    expanded = dict(row)
+    for column in json_columns:
+        raw_value = row.get(column, "")
+        parsed = _parse_json_value(raw_value)
+        if isinstance(parsed, dict):
+            flat = _flatten_dict(parsed)
+            for key, value in flat.items():
+                expanded[f"{column}__{key}"] = str(value)
+    return expanded
+
+
+def _parse_json_value(value: str | None) -> Any:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text[0] not in "{[":
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+def _flatten_dict(payload: dict[str, Any], parent_key: str = "") -> dict[str, Any]:
+    flattened: dict[str, Any] = {}
+    for key, value in payload.items():
+        key_name = f"{parent_key}__{key}" if parent_key else str(key)
+        if isinstance(value, dict):
+            flattened.update(_flatten_dict(value, key_name))
+        else:
+            flattened[key_name] = value
+    return flattened
+
+
+def _infer_schema_from_columns(columns: list[str]) -> RecordSchema:
+    safe_columns = [column for column in columns if column is not None]
+    lowered = {column: column.lower() for column in safe_columns}
+
+    def has_token(column: str, tokens: tuple[str, ...]) -> bool:
+        value = lowered[column]
+        return any(token in value for token in tokens)
+
+    mapping: dict[FieldTag, list[str]] = {
+        FieldTag.CUSTOMER_ID: [c for c in safe_columns if has_token(c, ("customer_pk", "customer_id", "individual_id", "web_customer_id", "record_id", "_id"))],
+        FieldTag.NAME: [c for c in safe_columns if has_token(c, ("name", "firstname", "lastname", "title"))],
+        FieldTag.EMAIL: [c for c in safe_columns if has_token(c, ("email",))],
+        FieldTag.ADDRESS: [c for c in safe_columns if has_token(c, ("address", "line1", "line2", "line3", "street", "town", "city"))],
+        FieldTag.POSTCODE: [c for c in safe_columns if has_token(c, ("postcode", "zip"))],
+        FieldTag.PHONE: [c for c in safe_columns if has_token(c, ("phone", "mobile", "tel"))],
+        FieldTag.DOB: [c for c in safe_columns if has_token(c, ("dob", "birth"))],
+        FieldTag.COUNTRY: [c for c in safe_columns if has_token(c, ("country", "nation"))],
+        FieldTag.DATE: [c for c in safe_columns if has_token(c, ("date", "updated", "timestamp"))],
+        FieldTag.MARKETING: [c for c in safe_columns if has_token(c, ("marketing", "preference", "opted", "contact"))],
+        FieldTag.GENDER: [c for c in safe_columns if has_token(c, ("gender", "sex"))],
+    }
+    compact_mapping = {tag: cols for tag, cols in mapping.items() if cols}
+    if not any(compact_mapping.get(tag) for tag in (FieldTag.NAME, FieldTag.ADDRESS, FieldTag.EMAIL)):
+        fallback = [
+            c
+            for c in safe_columns
+            if c not in {"RECORD_ID", "record_id"} and not has_token(c, ("_id", "customer_pk"))
+        ]
+        if fallback:
+            compact_mapping[FieldTag.NAME] = fallback
+    return RecordSchema.from_mapping(compact_mapping)
+
+
+def _embedding_tags_for_schema(schema: RecordSchema) -> list[FieldTag]:
+    preferred = [FieldTag.NAME, FieldTag.ADDRESS, FieldTag.EMAIL, FieldTag.POSTCODE, FieldTag.PHONE]
+    tags = [tag for tag in preferred if schema.columns_for(tag)]
+    return tags or [FieldTag.NAME]
 
 
 def _cluster_sample_payload(
@@ -286,13 +397,14 @@ def _apply_email_constraint(
     candidates: list,
     records: list[CustomerRecord],
     constraint: str,
+    schema: RecordSchema,
 ) -> list:
     if constraint == "none":
         return candidates
 
     emails_by_id: dict[str, str] = {}
     for record in records:
-        raw_email = RETAIL_SCHEMA.joined_value(record.attributes, FieldTag.EMAIL)
+        raw_email = schema.joined_value(record.attributes, FieldTag.EMAIL)
         emails_by_id[record.record_id] = _canonical_email(raw_email)
 
     filtered = []
