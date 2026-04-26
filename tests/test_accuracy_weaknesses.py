@@ -197,7 +197,6 @@ def test_accent_variant_clusters() -> None:
 
 # ---------- H7: empty-email bridge in canonical constraint ----------------------------
 
-@pytest.mark.xfail(strict=True, reason="H7: _emails_compatible returns True if either side is empty, allowing a blank-email bridge.")
 def test_empty_email_does_not_bridge_distinct_emails() -> None:
     """A blank-email record should not be a free transitive bridge between two records
     whose canonical emails clearly disagree. Today, the constraint individually allows
