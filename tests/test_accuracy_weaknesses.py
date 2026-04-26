@@ -77,7 +77,6 @@ def _cluster_sets(clusters) -> list[set[str]]:
 
 # ---------- H1: nicknames -------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H1: nickname/diminutive variants (Robert<->Bob) not recognised.")
 def test_nickname_variant_clusters_when_address_and_email_match() -> None:
     schema = RecordSchema.from_mapping({
         FieldTag.NAME: ["FIRSTNAME", "LASTNAME"],
@@ -186,7 +185,6 @@ def test_firstname_lastname_swap_still_matches() -> None:
 
 # ---------- H6: accent / unicode normalization ----------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H6: no unicode normalization in cleanup or embedding.")
 def test_accent_variant_clusters() -> None:
     schema = RecordSchema.from_mapping({
         FieldTag.NAME: ["FIRSTNAME", "LASTNAME"],
@@ -269,7 +267,6 @@ def test_phone_format_variants_have_high_embedding_similarity() -> None:
 
 # ---------- H10: cross-process embedding stability ------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H10: SimpleTextEmbeddingModel uses Python's randomized hash(); similarities differ across processes.")
 def test_embedding_similarities_stable_across_processes() -> None:
     snippet = textwrap.dedent(
         """

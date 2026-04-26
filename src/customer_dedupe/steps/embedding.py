@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import unicodedata
 from collections import defaultdict
 from collections.abc import Sequence
 from math import sqrt
@@ -26,8 +28,9 @@ class SimpleTextEmbeddingModel:
             vector = [0.0] * self._dimensions
             text_parts = [self._schema.joined_value(record.attributes, tag) for tag in self._tags]
             text = " ".join(part.lower() for part in text_parts if part).strip()
+            text = _strip_accents(text)
             for token in text.split():
-                idx = hash(token) % self._dimensions
+                idx = _stable_hash(token) % self._dimensions
                 vector[idx] += 1.0
             vectors.append(_l2_normalize(vector))
         return vectors
@@ -182,3 +185,12 @@ def _l2_normalize(vector: Sequence[float]) -> list[float]:
     if norm == 0:
         return [0.0] * len(vector)
     return [v / norm for v in vector]
+
+
+def _stable_hash(token: str) -> int:
+    digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=False)
+
+
+def _strip_accents(text: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
