@@ -298,7 +298,6 @@ def test_embedding_similarities_stable_across_processes() -> None:
 
 # ---------- H11: synthetic-data ground-truth quality ----------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H11: ReferenceDatasetGenerator emails collide across distinct identities (idx % 97).")
 def test_reference_dataset_distinct_identities_have_distinct_emails() -> None:
     records = ReferenceDatasetGenerator(seed=42).generate(
         columns=RETAIL_COLUMNS,
