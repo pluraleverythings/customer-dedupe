@@ -26,10 +26,18 @@ class SimpleTextEmbeddingModel:
         vectors: list[list[float]] = []
         for record in records:
             vector = [0.0] * self._dimensions
-            text_parts = [self._schema.joined_value(record.attributes, tag) for tag in self._tags]
-            text = " ".join(part.lower() for part in text_parts if part).strip()
-            text = _strip_accents(text)
-            for token in text.split():
+            tokens: list[str] = []
+            for tag in self._tags:
+                value = _strip_accents(self._schema.joined_value(record.attributes, tag).lower())
+                if not value:
+                    continue
+                if tag == FieldTag.PHONE:
+                    digits = "".join(ch for ch in value if ch.isdigit())
+                    if digits:
+                        tokens.append(digits[-10:])
+                else:
+                    tokens.extend(value.split())
+            for token in tokens:
                 idx = _stable_hash(token) % self._dimensions
                 vector[idx] += 1.0
             vectors.append(_l2_normalize(vector))

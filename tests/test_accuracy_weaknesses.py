@@ -248,7 +248,6 @@ def test_canonical_email_collapses_yahoo_dots() -> None:
 
 # ---------- H9: phone tokenisation / format invariance --------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H9: phone is tokenised whole; format variants share no token overlap.")
 def test_phone_format_variants_have_high_embedding_similarity() -> None:
     schema = RecordSchema.from_mapping({
         FieldTag.NAME: ["FIRSTNAME", "LASTNAME"],
