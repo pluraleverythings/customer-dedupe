@@ -129,7 +129,6 @@ def test_transitive_chain_does_not_bridge_unrelated_endpoints() -> None:
 
 # ---------- H3: 2-edit title swaps ----------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H3: NameFuzzyMatcher max_edits=1 misses 2-edit title swaps (Mrs vs Dr).")
 def test_two_edit_title_swap_is_a_deterministic_match() -> None:
     schema = RecordSchema.from_mapping({
         FieldTag.NAME: ["TITLE", "FIRSTNAME", "LASTNAME"],
@@ -145,7 +144,6 @@ def test_two_edit_title_swap_is_a_deterministic_match() -> None:
 
 # ---------- H4: asymmetric NAME population --------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H4: joined NAME blob diverges when one record has billing names populated and the other doesn't.")
 def test_asymmetric_billing_name_population_still_matches_deterministically() -> None:
     schema = RecordSchema.from_mapping({
         FieldTag.NAME: ["FIRSTNAME", "LASTNAME", "BILLING_FIRSTNAME", "BILLING_LASTNAME"],
@@ -169,7 +167,6 @@ def test_asymmetric_billing_name_population_still_matches_deterministically() ->
 
 # ---------- H5: name reorder ----------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H5: NameFuzzyMatcher is order-sensitive on the joined string.")
 def test_firstname_lastname_swap_still_matches() -> None:
     schema = RecordSchema.from_mapping({
         FieldTag.NAME: ["FIRSTNAME", "LASTNAME"],
