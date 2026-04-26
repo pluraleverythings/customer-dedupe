@@ -439,14 +439,15 @@ def _canonical_email(email: str) -> str:
         return email
     local, domain = email.split("@", maxsplit=1)
     local = local.split("+", maxsplit=1)[0]
-    if domain in {"gmail.com", "googlemail.com"}:
-        local = local.replace(".", "")
+    local = local.replace(".", "")
     return f"{local}@{domain}"
 
 
 def _emails_compatible(left: str, right: str) -> bool:
-    if not left or not right:
+    if not left and not right:
         return True
+    if not left or not right:
+        return False
     return left == right
 
 

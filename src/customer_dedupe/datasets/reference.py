@@ -86,7 +86,7 @@ class ReferenceDatasetGenerator:
         house_no = str(1 + (idx % 180))
         town = self._rng.choice(_TOWNS)
         country = self._rng.choice(["GB", "US", "IE"])
-        email_local = f"{first_name}.{last_name}{idx % 97}".lower()
+        email_local = f"{first_name}.{last_name}{idx}".lower()
 
         return {
             "title": self._rng.choice(["Mr", "Ms", "Dr"]),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import unicodedata
 from collections import defaultdict
 from collections.abc import Sequence
 from math import sqrt
@@ -24,10 +26,19 @@ class SimpleTextEmbeddingModel:
         vectors: list[list[float]] = []
         for record in records:
             vector = [0.0] * self._dimensions
-            text_parts = [self._schema.joined_value(record.attributes, tag) for tag in self._tags]
-            text = " ".join(part.lower() for part in text_parts if part).strip()
-            for token in text.split():
-                idx = hash(token) % self._dimensions
+            tokens: list[str] = []
+            for tag in self._tags:
+                value = _strip_accents(self._schema.joined_value(record.attributes, tag).lower())
+                if not value:
+                    continue
+                if tag == FieldTag.PHONE:
+                    digits = "".join(ch for ch in value if ch.isdigit())
+                    if digits:
+                        tokens.append(digits[-10:])
+                else:
+                    tokens.extend(value.split())
+            for token in tokens:
+                idx = _stable_hash(token) % self._dimensions
                 vector[idx] += 1.0
             vectors.append(_l2_normalize(vector))
         return vectors
@@ -107,10 +118,12 @@ class DefaultEmbeddingMatcher:
         embedding_model: EmbeddingModel,
         vector_index: VectorIndex,
         similarity_threshold: float = 0.85,
+        strong_pair_score: float = 0.85,
     ) -> None:
         self._embedding_model = embedding_model
         self._vector_index = vector_index
         self._similarity_threshold = similarity_threshold
+        self._strong_pair_score = strong_pair_score
 
     def match(self, records: Sequence[CustomerRecord]) -> list[MatchCandidate]:
         vectors = self._embedding_model.embed(records)
@@ -122,15 +135,23 @@ class DefaultEmbeddingMatcher:
         if not candidates:
             return []
 
+        pair_scores: dict[tuple[str, str], list[float]] = defaultdict(list)
+        for candidate in candidates:
+            key = tuple(sorted((candidate.left_id, candidate.right_id)))
+            pair_scores[key].append(candidate.score)
+
         uf = _UnionFind()
         score_map: dict[str, list[float]] = defaultdict(list)
+        for (left, right), scores in pair_scores.items():
+            if max(scores) < self._strong_pair_score and len(scores) < 2:
+                continue
+            uf.union(left, right)
 
-        for candidate in candidates:
-            uf.union(candidate.left_id, candidate.right_id)
-
-        for candidate in candidates:
-            root = uf.find(candidate.left_id)
-            score_map[root].append(candidate.score)
+        for (left, right), scores in pair_scores.items():
+            if max(scores) < self._strong_pair_score and len(scores) < 2:
+                continue
+            root = uf.find(left)
+            score_map[root].extend(scores)
 
         groups = uf.groups()
         clusters: list[Cluster] = []
@@ -182,3 +203,12 @@ def _l2_normalize(vector: Sequence[float]) -> list[float]:
     if norm == 0:
         return [0.0] * len(vector)
     return [v / norm for v in vector]
+
+
+def _stable_hash(token: str) -> int:
+    digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=False)
+
+
+def _strip_accents(text: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
