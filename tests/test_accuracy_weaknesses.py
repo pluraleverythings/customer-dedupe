@@ -242,7 +242,6 @@ def test_empty_email_does_not_bridge_distinct_emails() -> None:
 
 # ---------- H8: non-gmail dot canonicalization ----------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H8: _canonical_email only collapses dots for gmail/googlemail.")
 def test_canonical_email_collapses_yahoo_dots() -> None:
     assert _canonical_email("jane.smith@yahoo.com") == _canonical_email("janesmith@yahoo.com")
 

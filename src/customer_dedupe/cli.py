@@ -439,8 +439,7 @@ def _canonical_email(email: str) -> str:
         return email
     local, domain = email.split("@", maxsplit=1)
     local = local.split("+", maxsplit=1)[0]
-    if domain in {"gmail.com", "googlemail.com"}:
-        local = local.replace(".", "")
+    local = local.replace(".", "")
     return f"{local}@{domain}"
 
 
