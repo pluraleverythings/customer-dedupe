@@ -118,10 +118,12 @@ class DefaultEmbeddingMatcher:
         embedding_model: EmbeddingModel,
         vector_index: VectorIndex,
         similarity_threshold: float = 0.85,
+        strong_pair_score: float = 0.85,
     ) -> None:
         self._embedding_model = embedding_model
         self._vector_index = vector_index
         self._similarity_threshold = similarity_threshold
+        self._strong_pair_score = strong_pair_score
 
     def match(self, records: Sequence[CustomerRecord]) -> list[MatchCandidate]:
         vectors = self._embedding_model.embed(records)
@@ -133,15 +135,23 @@ class DefaultEmbeddingMatcher:
         if not candidates:
             return []
 
+        pair_scores: dict[tuple[str, str], list[float]] = defaultdict(list)
+        for candidate in candidates:
+            key = tuple(sorted((candidate.left_id, candidate.right_id)))
+            pair_scores[key].append(candidate.score)
+
         uf = _UnionFind()
         score_map: dict[str, list[float]] = defaultdict(list)
+        for (left, right), scores in pair_scores.items():
+            if max(scores) < self._strong_pair_score and len(scores) < 2:
+                continue
+            uf.union(left, right)
 
-        for candidate in candidates:
-            uf.union(candidate.left_id, candidate.right_id)
-
-        for candidate in candidates:
-            root = uf.find(candidate.left_id)
-            score_map[root].append(candidate.score)
+        for (left, right), scores in pair_scores.items():
+            if max(scores) < self._strong_pair_score and len(scores) < 2:
+                continue
+            root = uf.find(left)
+            score_map[root].extend(scores)
 
         groups = uf.groups()
         clusters: list[Cluster] = []

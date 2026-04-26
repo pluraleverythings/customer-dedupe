@@ -101,7 +101,6 @@ def test_nickname_variant_clusters_when_address_and_email_match() -> None:
 
 # ---------- H2: transitive closure bridging ------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="H2: union-find clusters all pair candidates without edge filtering.")
 def test_transitive_chain_does_not_bridge_unrelated_endpoints() -> None:
     schema = RecordSchema.from_mapping({
         FieldTag.NAME: ["FIRSTNAME", "LASTNAME"],
