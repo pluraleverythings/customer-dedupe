@@ -95,7 +95,8 @@ def run_test(
         },
     )
     deterministic_matcher = NameFuzzyMatcher(schema=schema, max_edits=1)
-    if embedding_backend == "sbert":
+    backend = _resolve_embedding_backend(embedding_backend)
+    if backend == "sbert":
         embedding_model = SbertEmbeddingModel(
             schema=schema,
             tags=_embedding_tags_for_schema(schema),
@@ -107,6 +108,7 @@ def run_test(
             schema=schema,
             tags=_embedding_tags_for_schema(schema),
         )
+    print(f"Embedding backend: {backend}")
 
     embedding_matcher = DefaultEmbeddingMatcher(
         embedding_model=embedding_model,
@@ -200,7 +202,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_test_parser.add_argument("--similarity-threshold", type=float, default=0.95)
     run_test_parser.add_argument("--input-csv", type=Path, default=None)
     run_test_parser.add_argument("--output-dir", type=Path, default=Path("data/cli_output"))
-    run_test_parser.add_argument("--embedding-backend", choices=["hashing", "sbert"], default="hashing")
+    run_test_parser.add_argument("--embedding-backend", choices=["auto", "hashing", "sbert"], default="auto")
     run_test_parser.add_argument("--sbert-model", type=str, default="all-MiniLM-L6-v2")
     run_test_parser.add_argument("--sbert-batch-size", type=int, default=64)
     run_test_parser.add_argument("--show-clusters", type=int, default=10)
@@ -441,6 +443,16 @@ def _canonical_email(email: str) -> str:
     local = local.split("+", maxsplit=1)[0]
     local = local.replace(".", "")
     return f"{local}@{domain}"
+
+
+def _resolve_embedding_backend(requested: str) -> str:
+    if requested != "auto":
+        return requested
+    try:
+        import sentence_transformers  # noqa: F401
+    except ImportError:
+        return "hashing"
+    return "sbert"
 
 
 def _emails_compatible(left: str, right: str) -> bool:

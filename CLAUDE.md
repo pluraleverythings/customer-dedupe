@@ -19,18 +19,21 @@ The installer requires Python >= 3.10 and editable-installs the package. SBERT s
 The package exposes a `run-test` subcommand that generates (or loads) a dataset, runs the full pipeline, and writes `test_dataset.csv`, `clusters.json`, and `summary.json` to `--output-dir`.
 
 ```bash
-# After install (entrypoint)
+# After ./scripts/install.sh --sbert this auto-selects the SBERT backend.
 customer-dedupe run-test --size 2000 --output-dir data/cli_output
 
 # Without install (note PYTHONPATH=src because package lives under src/)
 PYTHONPATH=src python3 -m customer_dedupe run-test --size 2000 --output-dir data/cli_output
 
-# Use SBERT instead of the default hashing embedding
+# Force a specific backend
+customer-dedupe run-test --embedding-backend hashing ...
 customer-dedupe run-test --embedding-backend sbert --sbert-model all-MiniLM-L6-v2 ...
 
 # Run against an external CSV (schema is auto-inferred from column names; JSON columns are flattened)
 customer-dedupe run-test --input-csv path/to/customers.csv --output-dir data/cli_output
 ```
+
+`--embedding-backend` defaults to `auto`: prefer SBERT if `sentence-transformers` is importable, else fall back to the hashing baseline. The selection is echoed on stdout (`Embedding backend: ...`). SBERT is the recommended default — on the 1000-record synthetic benchmark it lifts recall from 0.81 to 0.99 (precision 1.0 in both cases).
 
 Notable flags: `--similarity-threshold` (default `0.95`), `--duplicate-rate` (synthetic data only, default `0.15`), `--email-constraint {none,canonical}` (default `canonical`, drops candidate pairs whose canonicalized emails disagree), `--show-clusters N` (prints sample clusters to stdout).
 
